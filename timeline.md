@@ -2,7 +2,7 @@ I want to record how I did most stuff for future reference.
 
 Also I want to summarize the pdf along the way.
 
-# Slack Info
+## Slack Info
 
 1. Should always use B200 even H100 is mentioned in pdf: [link](https://stanford-cs336.slack.com/archives/C0AEU1NJWSC/p1776664989925639)
 2. Mostly you should use torch.no_grad (or better still, `torch.inference_mode`) for the forward-only, unless you're asked to account for the memory saved for backward.
@@ -79,11 +79,9 @@ Common settings for all (non-leaderboard) experiments: `vocab_size=10000`, `batc
 
 Tip: use `pandas.DataFrame.to_latex()` to auto-generate result tables.
 
-## benchmarking_script
+### benchmarking_script
 
 Implementation: `cs336_systems/benchmarking_script.py` + Modal `cs336_systems/benchmarking_script_modal.py`.
-
-### `benchmarking_script`
 
 It is not hard to write `benchmarking_script.py`: basically parse the arguement (take the template above into account), then implement as instructions. Remeber to sync though.
 
@@ -138,4 +136,142 @@ For (c), ran `uv run modal run cs336_systems/benchmarking_script_modal.py --size
 | 2 | 56.06     | 0.04     | 55.98 | 56.11  |
 | 5 | 56.44     | 0.04     | 56.35 | 56.50  |
 
+
+### nsight-systems
+
+I am using `ArchLinux`. Need to run `sudo pacman -Sy` to update package base first, and then `sudo pacman -S nsight-systems`. I also noticed that there are AUR but I did not investigate it (a little bit sus).
+
+```bash
+nsys --version
+```
+
+Outputs: `NVIDIA Nsight Systems version 2025.6.3.541-256337736014v0`. This is same as the webpage time tag. 
+
+Now I start to annotate the codes. Then I will get more familiar with nsys CLI.
+
+Pdf says: you should use NVTX ranges to ignore the warm-up steps in your benchmarking script by applying an `--nvtx-capture` filter on the nvtx label in the profile 
+
+When editing staff's code, I realize I should also use
+
+```python
+from jaxtyping import Bool, Float
+from torch import Tensor
+from beartype import beartype #for shape check
+```
+
+and `Q: Float[Tensor, " ... queries d_k"]` to indicate shape rather than manually comment.
+
+Then write a modal driver. The trick is to use `subprocess.run(cmd, check=True)` and cmd is the list of strings whose join is the shell command we want to run.
+Also write a new image build using Slack 6 to include nsight-system.
+
+Add
+```toml
+"beartype>=0.18",                                                                                                                                                │
+"jaxtyping>=0.2",                                                                                                                                                │
+"einops>=0.7"
+```
+to `pyproject.toml`.
+
+Then run `uv run modal run --detach cs336_systems/nsys_profile_modal.py --size small --context-length 256 --mode full_step` for different sizes and context lengths.
+
+Then it is standard modal to download results:
+
+```bash
+mkdir -p nsys_reports
+uv run modal volume get systems-srliu nsys/ ./nsys_reports/
+nsys-ui ./nsys_reports/nsys/nsys_small_ctx256_full_step.nsys-rep
+```
+
+For each of the 6 reports: pick a post-warmup step (e.g. `step_5`), filter the Stats System View → CUDA GPU Kernel Summary by the relevant NVTX range, sort by Total Time descending. Use the GUI ("Filter and Zoom in" by right-clicking an NVTX block) or CLI:
+
+I am looking at step 5 after warm up. The forward time only takes 34~ms for small size regardless of ctx and  filter using NVTX in threads and NVTX in CUDA HW are dramatically different (the latter is about 260ms for `ctx=4096`).  Namely, I get the following
+
+
+| size  | ctx  | step total (ms) | forward (ms) | backward (ms) | optimizer (ms) | match §2.1.3 fwd? |
+| ----- | ---- | --------------- | ------------ | ------------- | -------------- | ----------------- |
+| small | 256  |     118.325            |    38.411          |      45.996         |      31.974          |                   |
+| small | 1024 |       121.798          |     33.708         |     47.668          |      38.812          |                   |
+| small | 4096 |       783.986          |     34.638         |        393.401       |         354.265       |                   |
+| large | 256  |         368.017        |     101.909         |       151.479        |       109.927         |                   |
+| large | 1024 |       769.165          |      172.608        |      382.000         |      211.321          |                   |
+| large | 2048 |        OOM          |      OOM        |        OOM       |        OOM        |       |
+| large | 4096 |       OOM          |      OOM        |        OOM       |        OOM        |       |
+
+Also filter using NVTX "backward" in threads will overlap a lot  with NVTX "forward" in CUDA HW.
+
+Then I noticed [Slack question](https://stanford-cs336.slack.com/archives/C0AEU1NJWSC/p1776475093163179), which inspires me to add more sync to separate foward, backward, optimizer in `run_step`.
+
+
+| size  | ctx  | step total (ms) | forward (ms) | backward (ms) | optimizer (ms) | match §2.1.3 fwd? |
+| ----- | ---- | --------------- | ------------ | ------------- | -------------- | ----------------- |
+| small | 256  |     118.325            |    38.411          |      45.996         |      31.974          |                   |
+| small | 1024 |       121.798          |     33.708         |     47.668          |      38.812          |                   |
+| small | 4096 |       783.986          |     34.638         |        393.401       |         354.265       |                   |
+| large | 256  |         368.017        |     101.909         |       151.479        |       109.927         |                   |
+| large | 1024 |       769.165          |      172.608        |      382.000         |      211.321          |                   |
+| large | 2048 |        OOM          |      OOM        |        OOM       |        OOM        |       |
+| large | 4096 |       OOM          |      OOM        |        OOM       |        OOM        |       |
+
+
+
+| size  | ctx  | top fwd kernel (name) | invocations | total ms | % of fwd kernel time |
+| ----- | ---- | --------------------- | ----------- | -------- | -------------------- |
+| small | 256  |                       |             |          |                      |
+| small | 1024 |                       |             |          |                      |
+| small | 4096 |                       |             |          |                      |
+| large | 256  |                       |             |          |                      |
+| large | 1024 |                       |             |          |                      |
+| large | 4096 |                       |             |          |                      |
+
+
+| size  | ctx  | top fwd+bwd kernel | same as fwd? |
+| ----- | ---- | ------------------ | ------------ |
+| small | 256  |                    |              |
+| small | 1024 |                    |              |
+| small | 4096 |                    |              |
+| large | 256  |                    |              |
+| large | 1024 |                    |              |
+| large | 4096 |                    |              |
+
+
+Non-matmul kernels that consume non-trivial CUDA time 
+
+```
+small/256:  -
+small/1024: -
+small/4096: -
+large/256:  -
+large/1024: -
+large/4096: -
+```
+
+
+| size  | ctx  | matmul% in fwd | matmul% in full step | which non-matmul kernels grow? |
+| ----- | ---- | -------------- | -------------------- | ------------------------------ |
+| small | 256  |                |                      |                                |
+| small | 1024 |                |                      |                                |
+| small | 4096 |                |                      |                                |
+| large | 256  |                |                      |                                |
+| large | 1024 |                |                      |                                |
+| large | 4096 |                |                      |                                |
+
+
+
+Filter by NVTX = `computing attention scores` / `computing softmax` / `final matmul`.
+
+
+| size  | ctx  | scores matmul (ms) | softmax (ms) | final matmul (ms) |
+| ----- | ---- | ------------------ | ------------ | ----------------- |
+| small | 256  |                    |              |                   |
+| small | 1024 |                    |              |                   |
+| small | 4096 |                    |              |                   |
+| large | 256  |                    |              |                   |
+| large | 1024 |                    |              |                   |
+| large | 4096 |                    |              |                   |
+
+
+FLOPs reference (per forward, per layer, both matmuls vs softmax):
+- scores matmul: $2 \cdot B \cdot H \cdot T^2 \cdot d_k$ FLOPs
+- final matmul: $2 \cdot B \cdot H \cdot T^2 \cdot d_k$ FLOPs
+- softmax: $\sim 5 \cdot B \cdot H \cdot T^2$ 
 

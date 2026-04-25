@@ -31,6 +31,7 @@ def benchmark_remote(
     dtype: str = "float32",
     seed: int = 0,
     lr: float = 5e-3,
+    annotate_attention: bool = False,
 ):
     from cs336_systems.benchmarking_script import main as benchmark_main
 
@@ -51,6 +52,7 @@ def benchmark_remote(
         dtype=dtype,
         seed=seed,
         lr=lr,
+        annotate_attention=annotate_attention,
     )
     return benchmark_main(args)
 
@@ -64,6 +66,7 @@ def main(
     context_length: int = 512,
     batch_size: int = 4,
     dtype: str = "float32",
+    annotate_attention: bool = False,
 ):
     """
     uv run modal run cs336_systems/benchmarking_script_modal.py --size small --mode full_step --warmup 5 --steps 10
@@ -76,6 +79,7 @@ def main(
         context_length=context_length,
         batch_size=batch_size,
         dtype=dtype,
+        annotate_attention=annotate_attention,
     )
     print("=" * 60)
     print(result)
