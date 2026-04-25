@@ -102,8 +102,9 @@ def run_step(
     return
 
 
-def main() -> None:
-    args = parse_args()
+def main(args: argparse.Namespace | None = None) -> None:
+    if args is None:  # this modification is for modal
+        args = parse_args()
     torch.manual_seed(args.seed)
 
     conf = resolve_arg(args)
@@ -117,7 +118,10 @@ def main() -> None:
 
     # initialize model and optimizer
     model = BasicsTransformerLM(
-        args.vocab_size, args.context_length, args.rope_theta, **conf
+        vocab_size=args.vocab_size,
+        context_length=args.context_length,
+        rope_theta=args.rope_theta,
+        **conf,
     ).to(device=device, dtype=dtype)
     optimizer = AdamW(model.parameters(), lr=args.lr)
 

@@ -16,8 +16,16 @@ user_volume = modal.Volume.from_name(
 
 
 def build_image(*, include_tests: bool = False) -> modal.Image:
-    image = modal.Image.debian_slim().apt_install("wget", "gzip").uv_sync()
-    image = image.add_local_python_source("cs336_systems")
+    # NOTE: pyproject.toml has `cs336-basics = { path = "./cs336-basics", editable = true }`.
+    # Modal's uv_sync() runs from /.uv, so we need to ship ./cs336-basics into /.uv/cs336-basics
+    # before uv_sync() runs (copy=True bakes it into the image layer at build time).
+    image = (
+        modal.Image.debian_slim(python_version="3.12")
+        .apt_install("wget", "gzip")
+        .add_local_dir("cs336-basics", remote_path="/.uv/cs336-basics", copy=True)
+        .uv_sync()
+        .add_local_python_source("cs336_systems")
+    )
     if include_tests:
         image = image.add_local_dir("tests", remote_path="/root/tests")
     return image
