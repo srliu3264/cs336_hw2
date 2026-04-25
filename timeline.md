@@ -2,11 +2,18 @@ I want to record how I did most stuff for future reference.
 
 Also I want to summarize the pdf along the way.
 
+# Slack Info
+
+1. Should always use B200 even H100 is mentioned in pdf: [link](https://stanford-cs336.slack.com/archives/C0AEU1NJWSC/p1776664989925639)
+2. Mostly you should use torch.no_grad (or better still, `torch.inference_mode`) for the forward-only, unless you're asked to account for the memory saved for backward.
+3. Mostly you should use torch.no_grad (or better still, torch.inference_mode) for the forward-only, unless you're asked to account for the memory saved for backward. [Link](https://stanford-cs336.slack.com/archives/C0AEU1NJWSC/p1776824327797059).
+4. In `nsprofiler`, cuda runtime and gpu time mean the same thing in (b) and (c).
+
 ## 1 Assignment Overview 
 
 Six things to implement: (1) benchmarking/profiling harness, (2) activation checkpointing, (3) FlashAttention-2 Triton kernel, (4) DDP, (5) optimizer state sharding, (6) FSDP.
-Submission: `writeup.pdf` + `code.zip` via `test_and_make_submission.sh`.
-Decision: use the **staff** `cs336-basics/` (already wired in `pyproject.toml`).
+
+I am using the **staff**'s `cs336_basics`
 
 ## 2 Profiling and Benchmarking
 
@@ -28,5 +35,10 @@ Tip: use `pandas.DataFrame.to_latex()` to auto-generate result tables.
 
 This is not hard: basically parse the arguement (take the template above into account). Remeber to sync.
 
-- For `mode=forward`, we use `torch.no_grad()` so no autograd graph build.
+- For `mode=forward`, we use `torch.no_grad()` so no autograd graph build. (aligning with Slack 2)
 - sync before `t0`  
+
+Then adpat the code to modal:
+- again following the modal guide to set up enviroment
+- copy `modal_utils` to `cs336_systems`
+- adapt the code to modal version.
