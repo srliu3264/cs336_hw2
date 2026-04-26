@@ -2,7 +2,7 @@ import argparse
 
 import modal
 
-from cs336_systems.modal_utils import VOLUME_MOUNTS, app, build_image
+from cs336_systems.modal_utils import VOLUME_MOUNTS, app, build_image, user_volume
 
 image = build_image()
 
@@ -32,6 +32,9 @@ def benchmark_remote(
     seed: int = 0,
     lr: float = 5e-3,
     annotate_attention: bool = False,
+    mixed_precision: bool = False,
+    mixed_dtype: str = "bfloat16",
+    results_file: str | None = None,
 ):
     from cs336_systems.benchmarking_script import main as benchmark_main
 
@@ -53,8 +56,15 @@ def benchmark_remote(
         seed=seed,
         lr=lr,
         annotate_attention=annotate_attention,
+        mixed_precision=mixed_precision,
+        mixed_dtype=mixed_dtype,
+        results_file=results_file,
     )
-    return benchmark_main(args)
+    try:
+        return benchmark_main(args)
+    finally:
+        if results_file is not None:
+            user_volume.commit()  # append results to csv file
 
 
 @app.local_entrypoint()
@@ -67,6 +77,9 @@ def main(
     batch_size: int = 4,
     dtype: str = "float32",
     annotate_attention: bool = False,
+    mixed_precision: bool = False,
+    mixed_dtype: str = "bfloat16",
+    results_file: str | None = None,
 ):
     """
     uv run modal run cs336_systems/benchmarking_script_modal.py --size small --mode full_step --warmup 5 --steps 10
@@ -80,6 +93,9 @@ def main(
         batch_size=batch_size,
         dtype=dtype,
         annotate_attention=annotate_attention,
+        mixed_precision=mixed_precision,
+        mixed_dtype=mixed_dtype,
+        results_file=results_file,
     )
     print("=" * 60)
     print(result)

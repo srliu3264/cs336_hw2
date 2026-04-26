@@ -1,0 +1,2 @@
+size,mode,mixed_precision,mixed_dtype,context_length,batch_size,warmup,steps,n_params,mean_ms,std_ms,max_ms,min_ms
+small,forward_backward,True,bfloat16,512,4,5,10,128625408,34.2828,0.8640,36.0248,32.9212

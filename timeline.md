@@ -275,3 +275,19 @@ Plus `exp_kernel_cuda` (softmax numerator), `reduce_kernel<MaxOps>` (softmax max
 I realized it is false above to run nsys with full step and then compare forward.
 
 I directly added these to LaTeX and I am lazy to paste here.
+
+### mixed precision
+
+I copied the code to ipynb and ran it.
+
+Look at `torch.autocast`.
+
+Then as in pdf, wrap forward with autocast context (use `nullcontext` to turn off) and add new argument to parse.
+
+I also finally add a new arguement to output results in a csv file. The only hard part is to carefully write os to mkdir and also for a new file, need to write column names. For modal driver, need to commit to user volume defined in utils.
+
+```bash
+uv run modal run --detach cs336_systems/benchmarking_script_modal.py --size small --mode forward_backward --results-file /root/data/mp_small.csv
+```
+
+### Memory

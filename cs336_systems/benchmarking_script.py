@@ -4,6 +4,7 @@ import argparse
 import math
 import statistics
 import timeit
+from contextlib import nullcontext
 
 import torch
 import torch.cuda.nvtx as nvtx
@@ -96,9 +97,21 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--annotate_attention", action="store_true", default=False)
+    p.add_argument("--mixed_precision", action="store_true", default=False)
+    p.add_argument(
+        "--mixed_dtype",
+        type=str,
+        default="bfloat16",
+        choices=["bfloat16", "float16"],
+    )
     p.add_argument(
         "--lr", type=float, default=5e-3
     )  # irrelevant, so i put best lr from hw1
+    p.add_argument(  # append to a csv file
+        "--results_file",
+        type=str,
+        default=None,
+    )
     return p.parse_args()
 
 
@@ -135,16 +148,21 @@ def run_step(
     y: torch.Tensor,
     mode: str,
     device="cuda",
+    amp_ctx=None,
 ) -> None:
+    if amp_ctx is None:
+        amp_ctx = nullcontext()
     # x:(..., batch_size, seq_len), y:(...,batch_size, seq_len)
     if mode == "forward":
         with nvtx.range("forward"):
             with torch.no_grad():  # do not save grads
-                _ = model(x)
+                with amp_ctx:
+                    _ = model(x)
             sync(device)
             return
     with nvtx.range("forward"):
-        logits = model(x)  # (..., batch_size, seq_len, vovab_size)
+        with amp_ctx:
+            logits = model(x)  # (..., batch_size, seq_len, vovab_size)
         sync(device)
     loss = cross_entropy(
         logits.view(-1, logits.shape[-1]), y.view(-1)
@@ -182,6 +200,13 @@ def main(args: argparse.Namespace | None = None) -> None:
     }
     dtype = addtorch[args.dtype]
 
+    # add autocast context
+    if args.mixed_precision:
+        amp_dtype = addtorch[args.mixed_dtype]
+        amp_ctx = torch.autocast(device_type="cuda", dtype=amp_dtype)
+    else:
+        amp_ctx = nullcontext()
+
     # initialize model and optimizer
     model = BasicsTransformerLM(
         vocab_size=args.vocab_size,
@@ -213,10 +238,13 @@ def main(args: argparse.Namespace | None = None) -> None:
         f"params={n_params/1e6:.1f}M, mode={args.mode}, warmup={args.warmup}, steps={args.steps}"
     )
 
+    if args.mixed_precision:
+        print(f"mixed precision: {args.mixed_dtype}")
+
     # warm up
     with nvtx.range("warmup"):
         for _ in range(args.warmup):
-            run_step(model, optimizer, x, y, args.mode, device)
+            run_step(model, optimizer, x, y, args.mode, device, amp_ctx=amp_ctx)
             sync(device)
     print("Warm-up completed.\n")
     times: list[float] = []
@@ -224,7 +252,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         sync(device)
         with nvtx.range(f"step {i}"):
             t0 = timeit.default_timer()
-            run_step(model, optimizer, x, y, args.mode, device)
+            run_step(model, optimizer, x, y, args.mode, device, amp_ctx=amp_ctx)
             sync(device)
             times.append(timeit.default_timer() - t0)
     mean = statistics.mean(times)
@@ -232,6 +260,30 @@ def main(args: argparse.Namespace | None = None) -> None:
     print(
         f"[result] mean = {mean*1000 : .2f} ms, std = {std*1000 : .2f} ms \n max = {max(times)*1000: .2f} ms, min = {min(times)*1000: .2f} ms"
     )
+
+    if args.results_file is not None:
+        import os
+
+        os.makedirs(
+            os.path.dirname(os.path.abspath(args.results_file)), exist_ok=True
+        )  # get ./dir name from file name and then mkdir -p
+        new_file = not os.path.exists(args.results_file)
+        with open(args.results_file, "a") as f:
+            if new_file:
+                f.write(
+                    "size,mode,mixed_precision,mixed_dtype,context_length,"
+                    "batch_size,warmup,steps,n_params,"
+                    "mean_ms,std_ms,max_ms,min_ms\n"
+                )
+            f.write(
+                f"{args.size},{args.mode},{args.mixed_precision},"
+                f"{args.mixed_dtype if args.mixed_precision else 'N/A'},"
+                f"{args.context_length},{args.batch_size},"
+                f"{args.warmup},{args.steps},{n_params},"
+                f"{mean*1000:.4f},{std*1000:.4f},"
+                f"{max(times)*1000:.4f},{min(times)*1000:.4f}\n"
+            )
+        print(f"[result] appended to {args.results_file}")
 
 
 if __name__ == "__main__":
