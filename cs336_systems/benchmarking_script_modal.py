@@ -35,6 +35,8 @@ def benchmark_remote(
     mixed_precision: bool = False,
     mixed_dtype: str = "bfloat16",
     results_file: str | None = None,
+    memory_profile: bool = False,
+    memory_snapshot_path: str | None = None,
 ):
     from cs336_systems.benchmarking_script import main as benchmark_main
 
@@ -59,10 +61,14 @@ def benchmark_remote(
         mixed_precision=mixed_precision,
         mixed_dtype=mixed_dtype,
         results_file=results_file,
+        memory_profile=memory_profile,
+        memory_snapshot_path=memory_snapshot_path,
     )
     try:
         return benchmark_main(args)
     finally:
+        if memory_profile:
+            user_volume.commit()
         if results_file is not None:
             user_volume.commit()  # append results to csv file
 
@@ -80,6 +86,8 @@ def main(
     mixed_precision: bool = False,
     mixed_dtype: str = "bfloat16",
     results_file: str | None = None,
+    memory_profile: bool = False,
+    memory_snapshot_path: str | None = None,
 ):
     """
     uv run modal run cs336_systems/benchmarking_script_modal.py --size small --mode full_step --warmup 5 --steps 10
@@ -96,6 +104,8 @@ def main(
         mixed_precision=mixed_precision,
         mixed_dtype=mixed_dtype,
         results_file=results_file,
+        memory_profile=memory_profile,
+        memory_snapshot_path=memory_snapshot_path,
     )
     print("=" * 60)
     print(result)

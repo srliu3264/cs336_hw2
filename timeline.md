@@ -291,3 +291,17 @@ uv run modal run --detach cs336_systems/benchmarking_script_modal.py --size smal
 ```
 
 ### Memory
+
+Samilar to mixed precision:
+
+1. add wrappers in `benchmarking_script.py`
+2. add arguments (in remote, args namespace, main) and commit to user volumn
+
+Experiment:
+```bash
+uv run modal run --detach cs336_systems/benchmarking_script_modal.py --size xl --mode forward --steps 1 --context-length 2048 --memory-profile --memory-snapshot-path /root/data/mem_xl_fwd_ctx2048.pickle
+```
+
+for xl, and for forward, full step, steps=1, ctx = 256, 2048.
+
+ctx=2048 all OOM except for forward with mp bf16. This is also reported in [Slack](https://stanford-cs336.slack.com/archives/C0AEU1NJWSC/p1776747260518119).

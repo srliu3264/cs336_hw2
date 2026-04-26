@@ -112,6 +112,8 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
     )
+    p.add_argument("--memory_profile", action="store_true", default=False)
+    p.add_argument("--memory_snapshot_path", type=str, default=None)
     return p.parse_args()
 
 
@@ -247,6 +249,10 @@ def main(args: argparse.Namespace | None = None) -> None:
             run_step(model, optimizer, x, y, args.mode, device, amp_ctx=amp_ctx)
             sync(device)
     print("Warm-up completed.\n")
+
+    if args.memory_profile:
+        torch.cuda.memory._record_memory_history(max_entries=1000000)
+    # run steps
     times: list[float] = []
     for i in range(args.steps):
         sync(device)
@@ -260,7 +266,19 @@ def main(args: argparse.Namespace | None = None) -> None:
     print(
         f"[result] mean = {mean*1000 : .2f} ms, std = {std*1000 : .2f} ms \n max = {max(times)*1000: .2f} ms, min = {min(times)*1000: .2f} ms"
     )
+    if args.memory_profile:
+        if args.memory_snapshot_path is None:
+            raise ValueError(
+                "--memory_snap_path did not receive paths for outputpickle file"
+            )
+        import os
 
+        os.makedirs(
+            os.path.dirname(os.path.abspath(args.memory_snapshot_path)), exist_ok=True
+        )
+        torch.cuda.memory._dump_snapshot(args.memory_snapshot_path)
+        torch.cuda.memory._record_memory_history(enabled=None)
+        print(f"[memory] snapshot pickle saved to {args.memory_snapshot_path}")
     if args.results_file is not None:
         import os
 
