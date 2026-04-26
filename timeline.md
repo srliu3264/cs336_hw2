@@ -187,13 +187,14 @@ For each of the 6 reports: pick a post-warmup step (e.g. `step_5`), filter the S
 I am looking at step 5 after warm up. The forward time only takes 34~ms for small size regardless of ctx and  filter using NVTX in threads and NVTX in CUDA HW are dramatically different (the latter is about 260ms for `ctx=4096`).  Namely, I get the following
 
 
-| size  | ctx  | step total (ms) | forward (ms) | backward (ms) | optimizer (ms) | match §2.1.3 fwd? |
+| size  | ctx  | step total (ms) | forward (ms) | backward (ms) | optimizer (ms) | match fwd? |
 | ----- | ---- | --------------- | ------------ | ------------- | -------------- | ----------------- |
-| small | 256  |     118.325            |    38.411          |      45.996         |      31.974          |                   |
+| small | 256  |     118.325            |    38.411        |      45.996         |      31.974          |      |
 | small | 1024 |       121.798          |     33.708         |     47.668          |      38.812          |                   |
 | small | 4096 |       783.986          |     34.638         |        393.401       |         354.265       |                   |
-| large | 256  |         368.017        |     101.909         |       151.479        |       109.927         |                   |
-| large | 1024 |       769.165          |      172.608        |      382.000         |      211.321          |                   |
+| small | 8192 |       OOM          |      OOM        |        OOM       |        OOM        |       |
+| large | 256  |         368.017        |     101.909         |       151.479        |       109.927         |   |
+| large | 1024 |       769.165          |      172.608        |      382.000         |      211.321          |           |
 | large | 2048 |        OOM          |      OOM        |        OOM       |        OOM        |       |
 | large | 4096 |       OOM          |      OOM        |        OOM       |        OOM        |       |
 
@@ -201,77 +202,76 @@ Also filter using NVTX "backward" in threads will overlap a lot  with NVTX "forw
 
 Then I noticed [Slack question](https://stanford-cs336.slack.com/archives/C0AEU1NJWSC/p1776475093163179), which inspires me to add more sync to separate foward, backward, optimizer in `run_step`.
 
+Now with sync isolation, I reran 6 experiments and their ablation. Now two filters NVTX basically match. (number from step5 i=5)
 
-| size  | ctx  | step total (ms) | forward (ms) | backward (ms) | optimizer (ms) | match §2.1.3 fwd? |
+| size  | ctx  | step total (ms) | forward (ms) | backward (ms) | optimizer (ms) | fwd (standard lib) |
 | ----- | ---- | --------------- | ------------ | ------------- | -------------- | ----------------- |
-| small | 256  |     118.325            |    38.411          |      45.996         |      31.974          |                   |
-| small | 1024 |       121.798          |     33.708         |     47.668          |      38.812          |                   |
-| small | 4096 |       783.986          |     34.638         |        393.401       |         354.265       |                   |
-| large | 256  |         368.017        |     101.909         |       151.479        |       109.927         |                   |
-| large | 1024 |       769.165          |      172.608        |      382.000         |      211.321          |                   |
+| small | 256  |           108.617      |    33.419          |      45.134         |      28.523          |  9.67±0.04                 |
+| small | 1024 |       174.219          |     55.890         |     74.311          |      42.775         |  37.07±0.04                 |
+| small | 4096 |       821.933         |     265.225         |        510.713       |         43.736       |    258.01±0.03               |
+| large | 256  |         511.931        |     164.922         |       215.738        |       126.523         |    62.23±0.04               |
+| large | 1024 |       755.812          |      232.132        |      436.022         |      82.041          |   229.35±0.12                |
 | large | 2048 |        OOM          |      OOM        |        OOM       |        OOM        |       |
 | large | 4096 |       OOM          |      OOM        |        OOM       |        OOM        |       |
 
 
 
-| size  | ctx  | top fwd kernel (name) | invocations | total ms | % of fwd kernel time |
+| size  | ctx  | top fwd kernel (name) | instances | total ms | % of fwd kernel time |
 | ----- | ---- | --------------------- | ----------- | -------- | -------------------- |
-| small | 256  |                       |             |          |                      |
-| small | 1024 |                       |             |          |                      |
-| small | 4096 |                       |             |          |                      |
-| large | 256  |                       |             |          |                      |
-| large | 1024 |                       |             |          |                      |
-| large | 4096 |                       |             |          |                      |
-
-
-| size  | ctx  | top fwd+bwd kernel | same as fwd? |
-| ----- | ---- | ------------------ | ------------ |
-| small | 256  |                    |              |
-| small | 1024 |                    |              |
-| small | 4096 |                    |              |
-| large | 256  |                    |              |
-| large | 1024 |                    |              |
-| large | 4096 |                    |              |
-
-
-Non-matmul kernels that consume non-trivial CUDA time 
-
-```
-small/256:  -
-small/1024: -
-small/4096: -
-large/256:  -
-large/1024: -
-large/4096: -
-```
-
-
-| size  | ctx  | matmul% in fwd | matmul% in full step | which non-matmul kernels grow? |
-| ----- | ---- | -------------- | -------------------- | ------------------------------ |
-| small | 256  |                |                      |                                |
-| small | 1024 |                |                      |                                |
-| small | 4096 |                |                      |                                |
-| large | 256  |                |                      |                                |
-| large | 1024 |                |                      |                                |
-| large | 4096 |                |                      |                                |
+| small | 256  |    `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_64x64x16_1x1x1_3_tnn_align1_bias_f32_relu`                   |   24          |    2.746      |     31.8%                 |
+| small | 1024 |    `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_64x64x16_1x1x1_3_tnn_align1_bias_f32_relu`                   |   60          |    10.234      |          28.5%            | 
+| small | 4096 |  `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_128x128x16_1x1x1_3_tnn_align1_bias_f32_relu`                     |     37        |   70.347       |         26.9%             |
+| large | 256  |   `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_64x32x16_1x1x1_3_tnn_align1_bias_f32_relu`                    |  180           |    26.909      |              45.0%        |
+| large | 1024 |  `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_128x128x16_1x1x1_3_tnn_align1_bias_f32_relu`                     |    109         |   84.128       |         36.9%             |
 
 
 
-Filter by NVTX = `computing attention scores` / `computing softmax` / `final matmul`.
+
+| size  | ctx  | top fwd+bwd kernel                                                                                                                  | same as fwd?                                 |
+| ----- | ---- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| small | 256  | `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_128x64x16_1x1x1_3_nnn_align1_bias_f32_relu`                                          | **No** — fwd top was `64x64x16 tnn_align1`   |
+| small | 1024 | `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_64x64x16_1x1x1_3_nnn_align1_bias_f32_relu`                                           | **Different layout** — fwd was `tnn_align1`  |
+| small | 4096 | `void at::native::elementwise_kernel<(int)128, (int)2, void at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float>>>(at::TensorIteratorBase &, const T1 &)::[lambda(int) (instance 1)]>(int, T3)` | **No** — non-matmul (softmax-grad division) takes the lead |
+| large | 256  | `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_64x32x16_1x1x1_3_nnn_align1_bias_f32_relu`                                           | **Different layout** — fwd was `tnn_align1`  |
+| large | 1024 | `cutlass3x_sm100_simt_sgemm_f32_f32_f32_f32_f32_64x64x16_1x1x1_3_ntn_align1_bias_f32_relu`                                           | **No** — fwd top was `128x128x16 tnn_align1` |
 
 
-| size  | ctx  | scores matmul (ms) | softmax (ms) | final matmul (ms) |
-| ----- | ---- | ------------------ | ------------ | ----------------- |
-| small | 256  |                    |              |                   |
-| small | 1024 |                    |              |                   |
-| small | 4096 |                    |              |                   |
-| large | 256  |                    |              |                   |
-| large | 1024 |                    |              |                   |
-| large | 4096 |                    |              |                   |
+- **DivFunctor**: `void at::native::elementwise_kernel<(int)128, (int)2, void at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float>>>(at::TensorIteratorBase &, const T1 &)::[lambda(int) (instance 1)]>(int, T3)` — softmax denominator divide ($P/Z$) and the $1/\sqrt{d_k}$ scaling.
+- **where_kernel_impl**: `void at::native::elementwise_kernel<(int)128, (int)2, void at::native::gpu_kernel_impl_nocast<at::native::<unnamed>::where_kernel_impl(at::TensorIterator &)::[lambda() (instance 1)]::operator ()() const::[lambda() (instance 11)]::operator ()() const::[lambda(bool, float, float) (instance 1)]>(at::TensorIteratorBase &, const T1 &)::[lambda(int) (instance 1)]>(int, T3)` — causal-mask `masked_fill` (`torch.where(mask, scores, -inf)`).
+- **CUDAFunctor_add**: `void at::native::elementwise_kernel<(int)128, (int)2, void at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<float>>(at::TensorIteratorBase &, const T1 &)::[lambda(int) (instance 1)]>(int, T3)` — residual adds.
+
+Plus `exp_kernel_cuda` (softmax numerator), `reduce_kernel<MaxOps>` (softmax max-shift), `reduce_kernel<MeanOps>` / `reduce_kernel<func_wrapp_t>` (RMSNorm $E[x^2]$ and softmax sum-reduce), and `CatArrayBatchedCopy` (concat MHSA heads).
 
 
-FLOPs reference (per forward, per layer, both matmuls vs softmax):
-- scores matmul: $2 \cdot B \cdot H \cdot T^2 \cdot d_k$ FLOPs
-- final matmul: $2 \cdot B \cdot H \cdot T^2 \cdot d_k$ FLOPs
-- softmax: $\sim 5 \cdot B \cdot H \cdot T^2$ 
+| size  | ctx  | matmul% | DivFunctor | where_kernel | CUDAFunctor_add | reduce(MaxOps) | exp_kernel | notes                          |
+| ----- | ---- | ------- | ---------- | ------------ | --------------- | -------------- | ---------- | ------------------------------ |
+| small | 256  | 78.3    | (top elementwise was MulFunctor 4.9%) |     | 1.8%            | 1.3%           |           | cat 1.8%, reduce(MeanOps) 1.3% |
+| small | 1024 | 69.7    | 5.2%       | 4.6%         | 4.5%            | 2.1%           | 2.0%       | reduce(sum) 1.7%               |
+| small | 4096 | 49.4    | 11.5%      | 10.7%        | 9.9%            | 3.3%           | 4.3%       | reduce(sum) 2.4%               |
+| large | 256  | 87.3    | 0.9%       | —            | 0.9%            | 0.8%           | —          | top elt: MulFunctor 2.8%, cat 1.1% |
+| large | 1024 | 76.8    | 4.1%       | 3.6%         | 3.5%            | 1.6%           | 1.5%       |                                |
 
+
+
+| size  | ctx  | matmul% in fwd | matmul% in full step | what increases in full step                                |
+| ----- | ---- | -------------- | -------------------- | ------------------------------------------------------ |
+| small | 256  | 78.3%          | 64.6%                | AdamW elementwise (`_foreach_*`), masked_fill backward |
+| small | 1024 | 69.7%          | 64.7%                | AdamW elementwise + softmax-bwd                        |
+| small | 4096 | 49.4%          | 47.0%                | softmax-bwd elementwise dominate                       |
+| large | 256  | 87.3%          | 74.6%                | AdamW elementwise                                      |
+| large | 1024 | 76.8%          | 72.2%                | AdamW elementwise + softmax-bwd                        |
+
+
+
+| size  | ctx  | scores matmul | softmax | final matmul | softmax/scores | softmax/final |
+| ----- | ---- | ------------- | ------- | ------------ | -------------- | ------------- |
+| small | 256  | 0.005         | 0.003   | 0.003        | 0.6            | 1.0           |
+| small | 1024 | 0.030         | 0.030   | 0.020        | ~1.0           | ~1.5          |
+| small | 4096 | 0.330         | 0.520   | 0.300        | 1.6            | 1.7           |
+| large | 256  | 0.003         | 0.005   | 0.005        | ~1.5           | ~1.0          |
+| large | 1024 | 0.040         | 0.050   | 0.030        | 1.3            | 1.7           |
+
+
+I realized it is false above to run nsys with full step and then compare forward.
+
+I directly added these to LaTeX and I am lazy to paste here.
