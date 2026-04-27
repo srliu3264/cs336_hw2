@@ -114,6 +114,19 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--memory_profile", action="store_true", default=False)
     p.add_argument("--memory_snapshot_path", type=str, default=None)
+    p.add_argument(
+        "--annotate_blocks", action="store_true", default=False
+    )  # NVTX annotate transformer block for (f) to check memeory
+    p.add_argument(
+        "--checkpoint_block_size",
+        type=int,
+        default=0,
+    )  # r=0 disables; r>0 wraps consecutive r blocks into checkpoint() chunks; r=N/k in a2.tex, gradient_checkpointing.
+    p.add_argument(
+        "--compile",
+        action="store_true",
+        default=False,
+    )  # wrap whole model in torch.compile
     return p.parse_args()
 
 
@@ -187,12 +200,15 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     torch.manual_seed(args.seed)
 
+    # NVTX annoate scaled dot product attention
     if args.annotate_attention:
         import cs336_basics.model
 
         cs336_basics.model.scaled_dot_product_attention = (
             annotated_scaled_dot_product_attention
         )
+
+    # load model architecture from model size template
     conf = resolve_arg(args)
     device = args.device
     addtorch = {
@@ -209,14 +225,64 @@ def main(args: argparse.Namespace | None = None) -> None:
     else:
         amp_ctx = nullcontext()
 
-    # initialize model and optimizer
+    # initialize model
     model = BasicsTransformerLM(
         vocab_size=args.vocab_size,
         context_length=args.context_length,
         rope_theta=args.rope_theta,
         **conf,
     ).to(device=device, dtype=dtype)
-    optimizer = AdamW(model.parameters(), lr=args.lr)
+
+    # annotate transformer block for memory (f)
+    if args.annotate_blocks:
+        import cs336_basics.model as _model
+
+        _block_forward = _model.TransformerBlock.forward
+
+        def _annotated_block_forward(self, *arg, **kwarg):
+            with nvtx.range(f"block_{getattr(self,'_block_idx','?')}"):
+                return _block_forward(self, *arg, **kwarg)
+
+        _model.TransformerBlock.forward = _annotated_block_forward
+        for i, block in enumerate(model.layers):
+            block._block_idx = i
+
+    # gradient checkpointing: wrap layers in checkpoint() chunks of size r
+    if args.checkpoint_block_size and args.checkpoint_block_size > 0:
+        from torch.utils.checkpoint import checkpoint
+
+        r = args.checkpoint_block_size
+        layers_list = list(model.layers)
+        n = len(layers_list)
+        chunks = [layers_list[i : i + r] for i in range(0, n, r)]
+
+        def _patched_forward(self, x):  # mirrors BasicsTransformerLM.forward
+            x = self.token_embeddings(x)
+            for chunk in chunks:
+
+                def _run_chunk(t, _chunk=chunk):
+                    for layer in _chunk:
+                        t = layer(t)
+                    return t
+
+                x = checkpoint(_run_chunk, x, use_reentrant=False)
+            x = self.ln_final(x)
+            return self.lm_head(x)
+
+        import types
+
+        model.forward = types.MethodType(_patched_forward, model)
+        print(
+            f"[gradient_checkpointing] wrapping {n} layers in {len(chunks)} chunks of size {r}"
+        )
+
+    # torch.compile
+    if args.compile:
+        optimizer = AdamW(model.parameters(), lr=args.lr)
+        model = torch.compile(model)
+        print("[torch.compile] Used JIT-Compiled")
+    else:
+        optimizer = AdamW(model.parameters(), lr=args.lr)
 
     # generate a batch of data
     x = torch.randint(
@@ -231,6 +297,8 @@ def main(args: argparse.Namespace | None = None) -> None:
         size=(args.batch_size, args.context_length),
         device=device,
     )
+
+    # print out config
     n_params = sum(p.numel() for p in model.parameters())
     print(
         f"[Hyperparameters] model_arch = {conf}, ctx = {args.context_length}, bs = {args.batch_size}, dtype = {args.dtype}, device = {device}"
@@ -248,10 +316,16 @@ def main(args: argparse.Namespace | None = None) -> None:
         for _ in range(args.warmup):
             run_step(model, optimizer, x, y, args.mode, device, amp_ctx=amp_ctx)
             sync(device)
-    print("Warm-up completed.\n")
+    print("=======Warm-up completed!!!\n")
 
+    # start cuda memory recording
     if args.memory_profile:
         torch.cuda.memory._record_memory_history(max_entries=1000000)
+
+    # reset peak memory counter so what we report below covers only the timed steps
+    if device.startswith("cuda"):
+        torch.cuda.reset_peak_memory_stats()
+
     # run steps
     times: list[float] = []
     for i in range(args.steps):
@@ -266,6 +340,13 @@ def main(args: argparse.Namespace | None = None) -> None:
     print(
         f"[result] mean = {mean*1000 : .2f} ms, std = {std*1000 : .2f} ms \n max = {max(times)*1000: .2f} ms, min = {min(times)*1000: .2f} ms"
     )
+    if device.startswith("cuda"):
+        peak_alloc_mib = torch.cuda.max_memory_allocated() / 1024**2
+        peak_reserved_mib = torch.cuda.max_memory_reserved() / 1024**2
+        print(
+            f"[memory] peak allocated = {peak_alloc_mib:.1f} MiB, peak reserved = {peak_reserved_mib:.1f} MiB"
+        )
+    # save memory recording
     if args.memory_profile:
         if args.memory_snapshot_path is None:
             raise ValueError(
@@ -279,6 +360,8 @@ def main(args: argparse.Namespace | None = None) -> None:
         torch.cuda.memory._dump_snapshot(args.memory_snapshot_path)
         torch.cuda.memory._record_memory_history(enabled=None)
         print(f"[memory] snapshot pickle saved to {args.memory_snapshot_path}")
+
+    # save run time recording
     if args.results_file is not None:
         import os
 

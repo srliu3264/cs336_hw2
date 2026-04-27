@@ -305,3 +305,102 @@ uv run modal run --detach cs336_systems/benchmarking_script_modal.py --size xl -
 for xl, and for forward, full step, steps=1, ctx = 256, 2048.
 
 ctx=2048 all OOM except for forward with mp bf16. This is also reported in [Slack](https://stanford-cs336.slack.com/archives/C0AEU1NJWSC/p1776747260518119).
+
+Then I went to [https://docs.pytorch.org/memory_viz](memory viz). Take screenshots. Change Detail to be 202/1999 (I can not exactly dragged it to 200 or 199).
+
+Then it outputs
+
+```txt
+141 Addr: b'14ae60000000_1, Size: 2.0GiB (2147483648 bytes) allocation, Total memory used after allocation: 21.2GiB (22735054848 bytes), Compile context: N/A, stream 0, pool_id (0, 0), timestamp Sun Apr 26 2026 00:03:44 GMT-0700 (Pacific Daylight Time)
+CUDACachingAllocator.cpp:0:c10::cuda::CUDACachingAllocator::Native::DeviceCachingAllocator::malloc(unsigned long, CUstream_st*)
+:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::malloc(void**, signed char, unsigned long, CUstream_st*)
+:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::allocate(unsigned long)
+??:0:at::detail::empty_generic(c10::ArrayRef<long>, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType, std::optional<c10::MemoryFormat>)
+??:0:at::detail::empty_cuda(c10::ArrayRef<long>, c10::ScalarType, std::optional<c10::Device>, std::optional<c10::MemoryFormat>)
+??:0:at::detail::empty_cuda(c10::ArrayRef<long>, std::optional<c10::ScalarType>, std::optional<c10::Layout>, std::optional<c10::Device>, std::optional<bool>, std::optional<c10::MemoryFormat>)
+??:0:at::detail::empty_cuda(c10::ArrayRef<long>, c10::TensorOptions const&)
+RegisterCUDA_0.cpp:0:at::(anonymous namespace)::create_out(c10::ArrayRef<long>, c10::ArrayRef<long>, c10::TensorOptions const&)
+RegisterCUDA_0.cpp:0:at::(anonymous namespace)::structured_div_out_functional::set_output_raw_strided(long, c10::ArrayRef<long>, c10::ArrayRef<long>, c10::TensorOptions, c10::ArrayRef<at::Dimname>)
+??:0:at::TensorIteratorBase::allocate_or_resize_outputs()
+??:0:at::TensorIteratorBase::build(at::TensorIteratorConfig&)
+??:0:at::TensorIteratorBase::build_borrowing_binary_float_op(at::TensorBase const&, at::TensorBase const&, at::TensorBase const&)
+RegisterCUDA_0.cpp:0:at::(anonymous namespace)::wrapper_CUDA_div_Tensor(at::Tensor const&, at::Tensor const&)
+RegisterCUDA_0.cpp:0:c10::impl::wrap_kernel_functor_unboxed_<c10::impl::detail::WrapFunctionIntoFunctor_<c10::CompileTimeFunctionPointer<at::Tensor (at::Tensor const&, at::Tensor const&), &at::(anonymous namespace)::wrapper_CUDA_div_Tensor>, at::Tensor, c10::guts::typelist::typelist<at::Tensor const&, at::Tensor const&> >, at::Tensor (at::Tensor const&, at::Tensor const&)>::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&, at::Tensor const&)
+??:0:at::_ops::div_Tensor::redispatch(c10::DispatchKeySet, at::Tensor const&, at::Tensor const&)
+VariableType_1.cpp:0:torch::autograd::VariableType::(anonymous namespace)::div_Tensor(c10::DispatchKeySet, at::Tensor const&, at::Tensor const&)
+VariableType_1.cpp:0:c10::impl::wrap_kernel_functor_unboxed_<c10::impl::detail::WrapFunctionIntoFunctor_<c10::CompileTimeFunctionPointer<at::Tensor (c10::DispatchKeySet, at::Tensor const&, at::Tensor const&), &torch::autograd::VariableType::(anonymous namespace)::div_Tensor>, at::Tensor, c10::guts::typelist::typelist<c10::DispatchKeySet, at::Tensor const&, at::Tensor const&> >, at::Tensor (c10::DispatchKeySet, at::Tensor const&, at::Tensor const&)>::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&, at::Tensor const&)
+??:0:at::_ops::div_Tensor::call(at::Tensor const&, at::Tensor const&)
+python_variable_methods.cpp:0:torch::autograd::THPVariable_div(_object*, _object*, _object*)
+python_variable_methods.cpp:0:_object* torch::autograd::TypeError_to_NotImplemented_<&torch::autograd::THPVariable_div>(_object*, _object*, _object*)
+??:0:PyType_GetModule
+??:0:Py_GetRecursionLimit
+??:0:PyNumber_Add
+??:0:PyNumber_TrueDivide
+??:0:_PyMem_SetupAllocators
+<repeats 9 times>
+??:0:PySequence_DelItem
+??:0:_PyMem_SetupAllocators
+??:0:_PyInterpreterState_SetRunningMain
+??:0:Py_RunMain
+??:0:Py_BytesMain
+??:0:__libc_init_first
+/.uv/cs336-basics/cs336_basics/nn_utils.py:7:softmax
+/.uv/cs336-basics/cs336_basics/model.py:432:scaled_dot_product_attention
+/.uv/cs336-basics/cs336_basics/model.py:520:forward
+/.uv/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py:1790:_call_impl
+/.uv/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py:1779:_wrapped_call_impl
+/.uv/cs336-basics/cs336_basics/model.py:382:forward
+/.uv/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py:1790:_call_impl
+/.uv/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py:1779:_wrapped_call_impl
+/.uv/cs336-basics/cs336_basics/model.py:253:forward
+/.uv/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py:1790:_call_impl
+/.uv/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py:1779:_wrapped_call_impl
+/root/cs336_systems/benchmarking_script.py:162:run_step
+/root/cs336_systems/benchmarking_script.py:261:main
+/root/benchmarking_script_modal.py:68:benchmark_remote
+/pkg/modal/_runtime/container_io_manager.py:225:call_function_sync
+/pkg/modal/_container_entrypoint.py:172:run_input_sync
+/pkg/modal/_container_entrypoint.py:247:call_function
+/pkg/modal/_container_entrypoint.py:388:main
+/pkg/modal/_container_entrypoint.py:406:<module>
+<frozen runpy>:88:_run_code
+<frozen runpy>:198:_run_module_as_main
+```
+
+
+Apprarently softmax is the key countribution.
+
+For ctx 128, no item contributes 10%.
+
+### nsys memory
+
+Add new argument to toggle if we should annotate transformer block (like attention we did before).
+
+Use `--cuda-memory-usage=true` for nsys.
+
+`uv run modal run --detach cs336_systems/nsys_profile_modal.py --size xl --context-length 1024 --mode forward_backward --warmup 5 --steps 1 --annotate-blocks --run-name mem_nsys_xl_ctx1024`
+
+I am deeply confused on how to annotate backward phase. I only annotated backward and I don't know what to read on GUI to answer the question. Then Gemini pointed to me that i need to set correct env:  `env["PYTORCH_CUDA_ALLOC_CONF"] ="backend:cudaMallocAsync"`.
+
+I realize Gemini gives useless info.
+
+The mistake I made is: I should still use NVTX in threads to filter, and then hover over the edge to see the numbers (since the change Delta is really small 2GB compared to 100GB)!
+
+Wasted 2hrs on this reading GPT, Gemini, and Torch... Should wait for OH!
+
+Then I found it is impossible to find top5 looking at the stats view. I learnt from Slack that I should use `nsys stats --report cuda_api_sum` and then use sql to query `CUDA_GPU_MEMORY_USAGE_EVENTS` table. I will do this later.
+
+(f) turns out to be very fun! I am happy to see the theoretical value matches the emperical value extracted from nsys GUI.
+
+
+## Single GPU
+
+Learnt checkpoint trick. This is just a math problem lol.
+
+Add a new argument checkpoint-block-szie, and then wrap blocks in checkpoints. similar to before, edit the functions; then add args / modify arg namespaces for main and remote in modal version.
+
+A subtle point I learnt is that we had better have `reset_peak_memory_stats()`.
+
+`uv run modal run --detach cs336_systems/benchmarking_script_modal.py --size xl --context-length 2048 --mode forward_backward --steps 5 --checkpoint-block-size 1`
+
+## Flash Attention!

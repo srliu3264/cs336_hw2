@@ -37,6 +37,9 @@ def benchmark_remote(
     results_file: str | None = None,
     memory_profile: bool = False,
     memory_snapshot_path: str | None = None,
+    annotate_blocks: bool = False,
+    checkpoint_block_size: int = 0,
+    compile: bool = False,
 ):
     from cs336_systems.benchmarking_script import main as benchmark_main
 
@@ -63,6 +66,9 @@ def benchmark_remote(
         results_file=results_file,
         memory_profile=memory_profile,
         memory_snapshot_path=memory_snapshot_path,
+        annotate_blocks=annotate_blocks,
+        checkpoint_block_size=checkpoint_block_size,
+        compile=compile,
     )
     try:
         return benchmark_main(args)
@@ -88,6 +94,9 @@ def main(
     results_file: str | None = None,
     memory_profile: bool = False,
     memory_snapshot_path: str | None = None,
+    annotate_blocks: bool = False,
+    checkpoint_block_size: int = 0,
+    compile: bool = False,
 ):
     """
     uv run modal run cs336_systems/benchmarking_script_modal.py --size small --mode full_step --warmup 5 --steps 10
@@ -106,6 +115,9 @@ def main(
         results_file=results_file,
         memory_profile=memory_profile,
         memory_snapshot_path=memory_snapshot_path,
+        annotate_blocks=annotate_blocks,
+        checkpoint_block_size=checkpoint_block_size,
+        compile=compile,
     )
     print("=" * 60)
     print(result)

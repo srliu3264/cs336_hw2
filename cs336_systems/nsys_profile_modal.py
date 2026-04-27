@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -31,6 +32,7 @@ def nsys_remote(
     batch_size: int = 4,
     dtype: str = "float32",
     annotate_attention: bool = True,
+    annotate_blocks: bool = False,
 ):
     out_dir = Path("/root") / NSYS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -46,6 +48,7 @@ def nsys_remote(
         "--cudabacktrace=all",
         "--python-backtrace=cuda",
         "--gpu-metrics-devices=0",
+        "--cuda-memory-usage=true",  # for (f): records cudaMalloc/cudaFree in timeline
         "--force-overwrite=true",
         "--",
         "python",
@@ -70,13 +73,17 @@ def nsys_remote(
     ]
     if annotate_attention:
         cmd.append("--annotate_attention")
+    if annotate_blocks:
+        cmd.append("--annotate_blocks")
 
-    print("[nsys_remote] cmd:", " ".join(cmd), flush=True)
+    env = os.environ.copy()
+    env["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync"
+
     subprocess.run(["which", "nsys"], check=False)
     subprocess.run(["nsys", "--version"], check=False)
     subprocess.run(["which", "python"], check=False)
 
-    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True, env=env)
     print("[nsys stdout]\n", result.stdout, flush=True)
     print("[nsys stderr]\n", result.stderr, flush=True)
     if result.returncode != 0:
@@ -96,6 +103,7 @@ def main(
     batch_size: int = 4,
     dtype: str = "float32",
     annotate_attention: bool = True,
+    annotate_blocks: bool = False,
     run_name: str = "",
 ):
     """Run a single nsys profile on Modal B200.
@@ -118,4 +126,5 @@ def main(
         batch_size=batch_size,
         dtype=dtype,
         annotate_attention=annotate_attention,
+        annotate_blocks=annotate_blocks,
     )
