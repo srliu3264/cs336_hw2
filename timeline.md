@@ -404,3 +404,17 @@ A subtle point I learnt is that we had better have `reset_peak_memory_stats()`.
 `uv run modal run --detach cs336_systems/benchmarking_script_modal.py --size xl --context-length 2048 --mode forward_backward --steps 5 --checkpoint-block-size 1`
 
 ## Flash Attention!
+
+###  attention benchmarking
+
+1. Forward timing under `no_grad`
+2. I still use timeit since I don't need a profiler to look at each component for this problem.
+3. This is important (learnt from Claude): `gc.collect()` `torch.cuda.empty_cache()` to free memory so that one OOM will not stop further experiment. But Claud's suggestion on using `del locals()["name of var"]` is sus. I would simply use del.
+4. be careful and set device to be cuda everywhere. 
+5. csv.DictWriter is very useful. I should have done this in section2. This is much easier.
+
+`uv run modal run --detach cs336_systems/attention_benchmark_modal.py --results-file /root/data/attn_uncompiled.csv`
+
+emmm should not use either subprocess or sys.argv. simply use optional args in main and patch.
+
+I also forgot to pass an absolute path.
