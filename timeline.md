@@ -418,3 +418,38 @@ A subtle point I learnt is that we had better have `reset_peak_memory_stats()`.
 emmm should not use either subprocess or sys.argv. simply use optional args in main and patch.
 
 I also forgot to pass an absolute path.
+
+`uv run modal run --detach cs336_systems/benchmarking_script_modal.py --compile --size 10B  --mode full-step --warmup 10 --steps 10 --context-length 512 --batch-size --results-file /root/data/compile_10b_compiled.csv` OOM
+
+`uv run modal run --detach cs336_systems/benchmarking_script_modal.py --size 10B  --mode full-step --warmup 10 --steps 10 --context-length 512 --batch-size 4 --results-file /root/data/compile_10b.csv` OOM
+
+### pytorch of FA2
+
+The idea: online softmax, outer loop Q. 
+I am not very familiar with ctx method. Here is a quick note.
+
+```python
+@staticmethod
+def forward(ctx, Q, K, V, is_causal=False):
+    # ... your attention math here ...
+    
+    # Save tensors for the backward pass
+    ctx.save_for_backward(Q, K, V, output)
+    ctx.is_causal = is_causal
+    return O, L
+```
+
+```python
+@staticmethod
+def backward(ctx, grad_O, grad_L):
+    # Unpack the tensors
+    Q, K, V, output = ctx.saved_tensors
+    # Unpack the non-tensor values
+    is_causal = ctx.is_causal
+    # ... calculate gradients for Q, K, and V ...
+    return grad_Q, grad_K, grad_V, None # None for is_causal since it doesn't need a gradient
+```
+
+FAILED tests/test_attention.py::test_flash_forward_pass_pytorch - RuntimeError: Expected size for first two dimensions of batch2 tensor to be: [4, 16] but got: [4, 64].
+
+I am being dumb! In Algorithm 1 it says return O,L. But in fact, O is return, L is saved in ctx.
