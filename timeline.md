@@ -453,3 +453,29 @@ def backward(ctx, grad_O, grad_L):
 FAILED tests/test_attention.py::test_flash_forward_pass_pytorch - RuntimeError: Expected size for first two dimensions of batch2 tensor to be: [4, 16] but got: [4, 64].
 
 I am being dumb! In Algorithm 1 it says return O,L. But in fact, O is return, L is saved in ctx.
+
+The big picture to understand triton from pytorch (from cc)
+
+  ┌─────────────────────────────┬────────────────────────────┬─────────────────────────────────────────────────────────┐
+  │ concept                     │ pure PyTorch (a)           │ Triton (b)                                              │
+  ├─────────────────────────────┼────────────────────────────┼─────────────────────────────────────────────────────────┤
+  │ outer loop over query tiles │ Python for i in range(T_q) │ parallelized as tl.program_id(0) — one program per tile │
+  │ outer loop over batch       │ broadcast over ...         │ parallelized as tl.program_id(1)                        │
+  │ inner loop over key tiles   │ Python for j in range(T_k) │ a single Triton-jit for j in range(T_k): loop           │
+  │ loading Q_i, K_j, V_j       │ Python slicing             │ tl.load(block_ptr)                                      │
+  │ matmul                      │ torch.matmul               │ tl.dot(..., acc=...)                                    │
+  │ writing O_i, L_i            │ tensor assignment          │ tl.store(block_ptr, ...)                                │
+
+
+After taking a long rest, I am finally prepared for triton. I will learn triton more carefully later on.
+
+Claude suggested the following reading materials:
+1. PDF §4.2.2 "FlashAttention-2 Forward Pass" through end of "Triton Tips and Tricks".
+2. Triton tutorial part 1: Vector addition (https://triton-lang.org/main/getting-started/tutorials/01-vector-add.html) — gets you the launch grid +program_id + load/store mental model.
+3. Triton tutorial part 6: Fused attention (https://triton-lang.org/main/getting-started/tutorials/06-fused-attention.html) — this is essentially a beefier version of what you're writing. 
+4. The tl.make_block_ptr reference (https://triton-lang.org/main/python-api/generated/triton.language.make_block_ptr.html) — one minute, just enough to know the args.
+
+
+I need pytest on modal. Herman's code needs a slight modification.
+
+`uv run modal run cs336_systems/pytest_modal.py --args "-k test_flash_forward_pass_triton -x -v"`
