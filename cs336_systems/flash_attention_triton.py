@@ -32,6 +32,7 @@ def flash_fwd_kernel(
     D: tl.constexpr,
     Q_TILE_SIZE: tl.constexpr,
     K_TILE_SIZE: tl.constexpr,
+    is_causal: tl.constexpr,
 ):
     query_tile_index = tl.program_id(0)
     batch_index = tl.program_id(1)
@@ -89,6 +90,11 @@ def flash_fwd_kernel(
         V_j = tl.load(V_block_ptr)
 
         S_ij = tl.dot(Q_i, tl.trans(K_j)) * scale
+        if is_causal:
+            q_idx = query_tile_index * Q_TILE_SIZE + tl.arange(0, Q_TILE_SIZE)
+            k_idx = j * K_TILE_SIZE + tl.arange(0, K_TILE_SIZE)
+            mask = q_idx[:, None] >= k_idx[None, :]
+            S_ij = S_ij + tl.where(mask, 0.0, -1.0e6)
         m_new = tl.maximum(m_i, tl.max(S_ij, axis=1))
         alpha = tl.exp(m_i - m_new)
         P_tilde = tl.exp(S_ij - m_new[:, None])
@@ -145,6 +151,7 @@ class FlashAttention2Triton(torch.autograd.Function):
             D=D,
             Q_TILE_SIZE=Q_TILE_SIZE,
             K_TILE_SIZE=K_TILE_SIZE,
+            is_causal=is_causal,
         )
         ctx.save_for_backward(L, Q, K, V, O)
         ctx.is_causal = is_causal
