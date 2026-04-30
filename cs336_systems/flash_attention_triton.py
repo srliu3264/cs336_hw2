@@ -4,6 +4,8 @@ import torch
 import triton
 import triton.language as tl
 
+from cs336_systems.flash_attention import _flash_backward_comp
+
 
 @triton.jit
 def flash_fwd_kernel(
@@ -159,4 +161,6 @@ class FlashAttention2Triton(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dO):
-        raise NotImplementedError("To be added later on")
+        L, Q, K, V, O = ctx.saved_tensors
+        dQ, dK, dV = _flash_backward_comp(Q, K, V, O, L, dO, ctx.is_causal)
+        return dQ, dK, dV, None

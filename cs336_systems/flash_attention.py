@@ -8,6 +8,29 @@ B_Q = 16
 B_K = 16
 
 
+def _flash_backward(Q, K, V, O, L, dO, is_causal: bool):
+    d = Q.shape[-1]
+    scale = 1.0 / math.sqrt(d)
+    S = torch.matmul(Q, K.transpose(-2, -1)) * scale
+    if is_causal:
+        n_q, n_k = Q.shape[-2], K.shape[-2]
+        q_idx = torch.arrange(n_q, device=Q.device)
+        k_inx = torch.arrange(n_k, device=Q.device)
+        mask = q_idx[:, None] >= k_idx[None, :]
+        S = S + torch.where(mask, 0.0, -1.0e6)
+    P = torch.exp(S - L.unsqueeze(-1))
+    D = (O * dO).sum(dim=-1)
+    dV = torch.matmul(P.transpose(-2, -1), dO)
+    dP = torch.matmul(dO, V.transpose(-2, -1))
+    dS = P * (dP - D.unsqueeze(-1)) * scale
+    dQ = torch.matmul(dS, K)
+    dK = torch.matmul(dS.transpose(-2, -1), Q)
+    return dQ, dK, dV
+
+
+_flash_backward_comp = torch.compile(_flash_backward)
+
+
 class FlashAttention2PyTorch(torch.autograd.Function):
     """FA2 (algorithm1)
 
@@ -78,5 +101,7 @@ class FlashAttention2PyTorch(torch.autograd.Function):
         return O
 
     @staticmethod
-    def backward(ctx, grad_o):
-        raise NotImplementedError("backward will be implemented in §4.4 flash_backward")
+    def backward(ctx, dO):
+        L, Q, K, V, O = ctx.saved_tensors
+        dQ, dK, dV = _flash_backward_comp(Q, K, V, O, L, dO, ctx.is_causal)
+        return dQ, dK, dV, None
